@@ -573,6 +573,15 @@ class LanguageModel(nn.Module):
         output_hidden_states = kwargs.pop("output_hidden_states", False)
         early_exit_layer = kwargs.pop("early_exit_layer", None)
 
+        # Force the (lazy) mRoPE position_ids to materialize before the forward.
+        # generate_step's async pipeline only force-evals y/logprobs, so the
+        # position_ids lazy graph aliases across successive generate_step calls and
+        # corrupts the 2nd+ generation (degenerate logits -> token 0 spam). Eval-ing
+        # here (positions are tiny: 3 x seq_len ints) breaks that cross-call
+        # dependency; it is otherwise a no-op.
+        if position_ids is not None:
+            mx.eval(position_ids)
+
         out = self.model(
             inputs,
             cache=cache,
